@@ -27,55 +27,6 @@ import Foundation
 import Venice
 import CLibvenice
 
-class Poller {
-    let channel = FallibleChannel<Void>()
-    var counter: Int = 0
-    let fd: Int32
-    let events: Venice.PollEvent
-    var polling = false
-    
-    init(fd: Int32, events: Venice.PollEvent) {
-        self.fd = fd
-        self.events = events
-    }
-    
-    func poll() throws {
-        if !polling {
-            co {
-                do {
-                    self.polling = true
-                    let ev = try Venice.poll(self.fd, events: self.events, deadline: -1)
-                    self.polling = false
-                    
-                    guard ev.contains(self.events) else {
-                        let error = ZeroMqError(description: "Unable to poll")
-                        while self.counter > 0 {
-                            self.channel.send(error)
-                            self.counter -= 1
-                        }
-                        return
-                    }
-                    
-                    while self.counter > 0 {
-                        self.channel.send()
-                        self.counter -= 1
-                    }
-                }
-                catch {
-                    while self.counter > 0 {
-                        self.channel.send(error)
-                        self.counter -= 1
-                    }
-                    return
-                }
-            }
-        }
-        
-        counter += 1
-        try channel.receive()
-    }
-}
-
 struct PollEvent : OptionSet {
     public let rawValue: Int16
     
@@ -118,10 +69,12 @@ public final class Socket {
 
     init(socket: UnsafeMutableRawPointer) throws {
         self.socket = socket
-        self.poller = Poller(fd: try getFileDescriptor(), events: .read)
     }
 
     deinit {
+        //release poller before closing the socket.
+        poller.shutdown()
+        poller = nil
         zmq_close(socket)
     }
 
@@ -141,12 +94,16 @@ public final class Socket {
         if zmq_bind(socket, endpoint) == -1 {
             throw ZeroMqError.lastError
         }
+        
+        poller = Poller(fd: try getFileDescriptor(), events: .read)
     }
 
     public func connect(_ endpoint: String) throws {
         if zmq_connect(socket, endpoint) == -1 {
             throw ZeroMqError.lastError
         }
+        
+        poller = Poller(fd: try getFileDescriptor(), events: .read)
     }
 
     public func send(_ message: Message, mode: SendMode = []) throws {
@@ -197,6 +154,9 @@ public final class Socket {
         
     }
     public func close() throws {
+        //release poller before closing the socket.
+        poller.shutdown()
+        poller = nil
         if zmq_close(socket) == -1 {
             throw ZeroMqError.lastError
         }
