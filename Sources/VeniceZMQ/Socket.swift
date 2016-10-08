@@ -65,7 +65,7 @@ public struct ReceiveMode : OptionSet {
 
 public final class Socket {
     let socket: UnsafeMutableRawPointer
-    var poller: Poller!
+    var poller: Poller?
 
     init(socket: UnsafeMutableRawPointer) throws {
         self.socket = socket
@@ -73,7 +73,7 @@ public final class Socket {
 
     deinit {
         //release poller before closing the socket.
-        poller.shutdown()
+        poller?.shutdown()
         poller = nil
         zmq_close(socket)
     }
@@ -155,7 +155,7 @@ public final class Socket {
     }
     public func close() throws {
         //release poller before closing the socket.
-        poller.shutdown()
+        poller?.shutdown()
         poller = nil
         if zmq_close(socket) == -1 {
             throw ZeroMqError.lastError
@@ -170,7 +170,7 @@ public final class Socket {
         guard zmq_errno() == EAGAIN else { throw ZeroMqError.lastError }
         
         while true {
-            try poller.poll()
+            try poller?.poll()
             
             let result = try closure()
             

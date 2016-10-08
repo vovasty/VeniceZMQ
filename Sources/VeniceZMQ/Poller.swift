@@ -82,6 +82,9 @@ class Poller {
     func shutdown() {
         notifyAll(ZeroMqError(description: "Unable to poll"))
         
+        assert(!polling)
+        assert(counter == 0)
+        
         yield
     }
     

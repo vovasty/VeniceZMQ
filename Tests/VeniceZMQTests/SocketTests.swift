@@ -101,6 +101,123 @@ class VeniceZMQTests: XCTestCase {
         completed.receive()
         
     }
+    
+    
+    func testRouterDealer1() throws {
+        let numClients = 10
+        
+        let context = try Context()
+        
+        var received = 0
+        let completed = Channel<Void>()
+        
+        let server = try context.socket(.router)
+        try server.bind("inproc://test")
+        
+        for _ in 0..<numClients {
+            co {
+                do {
+                    let client = try context.socket(.dealer)
+                    try client.connect("inproc://test")
+                    try! client.send("How are you?")
+                    let reply = try client.receiveString()
+                    XCTAssertEqual("I am good", reply)
+                    
+                    received += 1
+                    
+                    if received == numClients {
+                        completed.send()
+                    }
+                }
+                catch {
+                    XCTAssert(false)
+                }
+            }
+        }
+
+        for _ in 0..<numClients {
+            do {
+                let id = try server.receiveMessage(.ReceiveMore)
+                
+                let query = try server.receiveString()
+                
+                XCTAssertEqual(query, "How are you?")
+                
+                try server.send(id, mode: .SendMore)
+                try server.send("I am good")
+            }
+            catch {
+                XCTAssert(false)
+            }
+        }
+        
+        completed.receive()
+    }
+
+    
+    func testReqRep() throws {
+        let numClients = 1
+        
+        var context: Context! = try Context()
+        
+        let completed = Channel<Void>()
+        
+        var rep: Socket! = try context.socket(.rep)
+        try rep.bind("inproc://test")
+        
+        var completedDialogues = 0
+        var req: Socket! = try context.socket(.req)
+        try req.connect("inproc://test")
+
+
+        co {
+            for _ in 0..<numClients {
+                do {
+                    print("rep", "0")
+                    let query = try rep.receiveString()
+                    print("rep", "1")
+                    XCTAssertEqual(query, "Hi!")
+                    try rep.send("Bye!")
+                    print("rep", "2")
+                }
+                catch {
+                    XCTAssert(false)
+                }
+            }
+        }
+        
+
+        co {
+            for _ in 0..<numClients {
+                nap(for: 1)
+                do {
+                    print("req", "0")
+                    try req.send("Hi!")
+                    print("req", "1")
+                    let query = try req.receiveString()
+                    XCTAssertEqual(query, "Bye!")
+                    print("req", "2")
+                    
+                    completedDialogues += 1
+                    
+                    if numClients <= completedDialogues {
+                        completed.send()
+                    }
+                }
+                catch {
+                    XCTAssert(false)
+                }
+            }
+        }
+        
+        
+        completed.receive()
+
+        //TODO: need to release sockets before context, otherwise zmq_ctx_term might hang
+        req = nil
+        rep = nil
+        context = nil
+    }
 
 }
 
